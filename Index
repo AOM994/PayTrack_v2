@@ -3154,19 +3154,10 @@ function renderTimeline(){
 }
 
 function restoreArchive(id){
+  var numId=Number(id);
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
-  var arc=archives.find(function(a){return a.id===id;});
+  var arc=archives.find(function(a){return Number(a.id)===numId;});
   if(!arc||!arc.daySnapshot){showToast('Aucun snapshot disponible pour cette archive');return;}
-  if(!confirm('Restaurer les jours de "'+arc.mission+'" ('+arc.monthLabel+') dans la pointeuse ?\nLes jours actuellement pointés sur ce mois seront remplacés.'))return;
-  // Navigate to the archive's month
-  state.year=arc.year;
-  state.month=arc.month;
-  state.dayData=JSON.parse(JSON.stringify(arc.daySnapshot));
-  state.missionName=arc.mission;
-  saveMonth();
-  buildMonthStrip();render();renderPlannedMissions();
-  switchTab('calc');
-  showToast('✓ Jours restaurés — '+arc.mission+' '+arc.monthLabel);
 }
 
 function deleteArchive(id){
