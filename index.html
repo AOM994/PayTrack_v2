@@ -2676,20 +2676,15 @@ function renderStatsMois(){
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
   var archiveStats=archives.filter(function(a){return a.year===y;});
 
-  // Fusion intelligente : si une archive existe pour un mois ET que la pointeuse contient
-  // les mêmes jours (mission identique non re-pointée), on évite le double-comptage.
-  // Stratégie : on prend les archives en priorité ; on ajoute la pointeuse SEULEMENT
-  // si la mission active diffère des missions archivées (cas Mission B sur même mois).
+  // Fusion : on construit un tableau de 12 mois
+  // Pour chaque mois on additionne pointeuse + toutes les archives du même mois
   var merged=[];
   for(var m=0;m<12;m++){
     var ps=pointeuseStats.find(function(s){return s.m===m;});
     var arcs=archiveStats.filter(function(a){return a.month===m;});
     if(!ps&&!arcs.length)continue;
 
-    var entry={nb:0,brut:0,net:0,cotis:0,pas:0,repas:0,netSocial:0,mission:'',m:m,y:y};
-    var archivedMissionNames=arcs.map(function(a){return a.mission||'';});
-
-    // Ajout des archives
+    var entry=ps?{...ps}:{nb:0,brut:0,net:0,cotis:0,pas:0,repas:0,netSocial:0,mission:'',m:m,y:y};
     arcs.forEach(function(a){
       entry.nb+=a.nb||0;
       entry.brut+=a.brut||0;
@@ -2698,31 +2693,12 @@ function renderStatsMois(){
       entry.pas+=a.pas||0;
       entry.repas+=a.repas||0;
       entry.netSocial+=a.netSocial||0;
+      // On note les missions archivées présentes
       if(a.mission&&entry.mission!==a.mission){
         entry.mission=entry.mission?entry.mission+' + '+a.mission:a.mission;
       }
       entry.hasArchive=true;
     });
-
-    // Ajout de la pointeuse SEULEMENT si :
-    //  - aucune archive pour ce mois (cas standard), OU
-    //  - la mission active diffère de toutes les missions archivées (Mission B)
-    if(ps){
-      var psMission=ps.mission||'';
-      var alreadyArchived=archivedMissionNames.indexOf(psMission)!==-1;
-      if(!arcs.length||!alreadyArchived){
-        entry.nb+=ps.nb||0;
-        entry.brut+=ps.brut||0;
-        entry.net+=ps.net||0;
-        entry.cotis+=ps.cotis||0;
-        entry.pas+=ps.pas||0;
-        entry.repas+=ps.repas||0;
-        entry.netSocial+=ps.netSocial||0;
-        if(psMission&&entry.mission!==psMission){
-          entry.mission=entry.mission?entry.mission+' + '+psMission:psMission;
-        }
-      }
-    }
     merged.push(entry);
   }
 
@@ -2871,6 +2847,7 @@ function renderStatsMois(){
       tab.innerHTML=h;
     }
   }
+}
 
 function renderInsightCards(stats,y){
   var el=document.getElementById('insightCards');
@@ -2937,7 +2914,7 @@ function renderStatsAnnee(){
   // Stats pointeuse active
   var allStats=getAllMonthStats(y);
 
- // Fusionner avec les archives de l'année — sans double-comptage
+  // Fusionner avec les archives de l'année
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
   var archiveStats=archives.filter(function(a){return a.year===y;});
   var merged=[];
@@ -2945,23 +2922,12 @@ function renderStatsAnnee(){
     var ps=allStats.find(function(s){return s.m===m2;});
     var arcs=archiveStats.filter(function(a){return a.month===m2;});
     if(!ps&&!arcs.length)continue;
-    var entry={nb:0,brut:0,net:0,cotis:0,pas:0,repas:0,netSocial:0,mission:'',m:m2,y:y};
-    var archivedMissionNames=arcs.map(function(a){return a.mission||'';});
+    var entry=ps?{...ps}:{nb:0,brut:0,net:0,cotis:0,pas:0,repas:0,netSocial:0,mission:'',m:m2,y:y};
     arcs.forEach(function(a){
       entry.nb+=a.nb||0;entry.brut+=a.brut||0;entry.net+=a.net||0;
       entry.cotis+=a.cotis||0;entry.pas+=a.pas||0;entry.repas+=a.repas||0;
       entry.netSocial+=a.netSocial||0;
     });
-    if(ps){
-      var psMission=ps.mission||'';
-      var alreadyArchived=archivedMissionNames.indexOf(psMission)!==-1;
-      if(!arcs.length||!alreadyArchived){
-        entry.nb+=ps.nb||0;entry.brut+=ps.brut||0;entry.net+=ps.net||0;
-        entry.cotis+=ps.cotis||0;entry.pas+=ps.pas||0;entry.repas+=ps.repas||0;
-        entry.netSocial+=ps.netSocial||0;
-        entry.mission=psMission;
-      }
-    }
     merged.push(entry);
   }
   var allStatsMerged=merged;
@@ -3188,17 +3154,25 @@ function renderTimeline(){
 }
 
 function restoreArchive(id){
-  var numId=Number(id);
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
-  var arc=archives.find(function(a){return Number(a.id)===numId;});
+  var arc=archives.find(function(a){return a.id===id;});
   if(!arc||!arc.daySnapshot){showToast('Aucun snapshot disponible pour cette archive');return;}
+  if(!confirm('Restaurer les jours de "'+arc.mission+'" ('+arc.monthLabel+') dans la pointeuse ?\nLes jours actuellement pointés sur ce mois seront remplacés.'))return;
+  // Navigate to the archive's month
+  state.year=arc.year;
+  state.month=arc.month;
+  state.dayData=JSON.parse(JSON.stringify(arc.daySnapshot));
+  state.missionName=arc.mission;
+  saveMonth();
+  buildMonthStrip();render();renderPlannedMissions();
+  switchTab('calc');
+  showToast('✓ Jours restaurés — '+arc.mission+' '+arc.monthLabel);
 }
 
 function deleteArchive(id){
   if(!confirm('Supprimer cette archive ? Cette action est irréversible.'))return;
-  var numId=Number(id);
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
-  archives=archives.filter(function(a){return Number(a.id)!==numId;});
+  archives=archives.filter(function(a){return a.id!==id;});
   localStorage.setItem('tt_archives',JSON.stringify(archives));
   renderTimeline();
   showToast('Archive supprimée');
@@ -4142,8 +4116,9 @@ window.addEventListener('load',function(){
     var swUrl=URL.createObjectURL(swBlob);
     navigator.serviceWorker.register(swUrl).catch(function(){});
   }
- loadParams();
-  var sm=localStorage.getItem('tt_mode')||'simple';
+  loadParams();
+  localStorage.removeItem('tt_mode');
+  var sm='simple';
   state.mode=sm;
   document.getElementById('btnDetaille').classList.toggle('active',sm==='detail');
   document.getElementById('btnSimple').classList.toggle('active',sm==='simple');
