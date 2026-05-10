@@ -3162,11 +3162,13 @@ function restoreArchive(id){
 
 function deleteArchive(id){
   if(!confirm('Supprimer cette archive ? Cette action est irréversible.'))return;
+  var numId=Number(id);
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
-  archives=archives.filter(function(a){return a.id!==id;});
+  archives=archives.filter(function(a){return Number(a.id)!==numId;});
   localStorage.setItem('tt_archives',JSON.stringify(archives));
   renderTimeline();
   showToast('Archive supprimée');
+}
 }
 
 function exportDeclarationPDF(y){
