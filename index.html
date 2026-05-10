@@ -2668,23 +2668,28 @@ function renderStats(){
 function renderStatsMois(){
   var y=recapYear;
   var mn=mN();
-
+  
   // Stats depuis pointeuse
   var pointeuseStats=getAllMonthStats(y);
-
+  
   // Stats depuis archives
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
   var archiveStats=archives.filter(function(a){return a.year===y;});
-
-  // Fusion : on construit un tableau de 12 mois
-  // Pour chaque mois on additionne pointeuse + toutes les archives du même mois
+  
+  // Fusion intelligente : si une archive existe pour un mois ET que la pointeuse contient
+  // les mêmes jours (mission identique non re-pointée), on évite le double-comptage.
+  // Stratégie : on prend les archives en priorité ; on ajoute la pointeuse SEULEMENT
+  // si la mission active diffère des missions archivées (cas Mission B sur même mois).
   var merged=[];
   for(var m=0;m<12;m++){
     var ps=pointeuseStats.find(function(s){return s.m===m;});
     var arcs=archiveStats.filter(function(a){return a.month===m;});
     if(!ps&&!arcs.length)continue;
 
-    var entry=ps?{...ps}:{nb:0,brut:0,net:0,cotis:0,pas:0,repas:0,netSocial:0,mission:'',m:m,y:y};
+    var entry={nb:0,brut:0,net:0,cotis:0,pas:0,repas:0,netSocial:0,mission:'',m:m,y:y};
+    var archivedMissionNames=arcs.map(function(a){return a.mission||'';});
+
+    // Ajout des archives
     arcs.forEach(function(a){
       entry.nb+=a.nb||0;
       entry.brut+=a.brut||0;
@@ -2693,14 +2698,97 @@ function renderStatsMois(){
       entry.pas+=a.pas||0;
       entry.repas+=a.repas||0;
       entry.netSocial+=a.netSocial||0;
-      // On note les missions archivées présentes
       if(a.mission&&entry.mission!==a.mission){
         entry.mission=entry.mission?entry.mission+' + '+a.mission:a.mission;
       }
       entry.hasArchive=true;
     });
+
+    // Ajout de la pointeuse SEULEMENT si :
+    //  - aucune archive pour ce mois (cas standard), OU
+    //  - la mission active diffère de toutes les missions archivées (Mission B)
+    if(ps){
+      var psMission=ps.mission||'';
+      var alreadyArchived=archivedMissionNames.indexOf(psMission)!==-1;
+      if(!arcs.length||!alreadyArchived){
+        entry.nb+=ps.nb||0;
+        entry.brut+=ps.brut||0;
+        entry.net+=ps.net||0;
+        entry.cotis+=ps.cotis||0;
+        entry.pas+=ps.pas||0;
+        entry.repas+=ps.repas||0;
+        entry.netSocial+=ps.netSocial||0;
+        if(psMission&&entry.mission!==psMission){
+          entry.mission=entry.mission?entry.mission+' + '+psMission:psMission;
+        }
+      }
+    }
     merged.push(entry);
   }
+
+  var stats=merged;
+  
+  // Update year display
+  var yd=document.getElementById('recapYearDisplay');
+  if(yd)yd.textContent=y;
+  
+  // Totals
+  var totNet=stats.reduce(function(s,m){return s+m.net;},0);
+  var totBrut=stats.reduce(function(s,m){return s+m.brut;},0);
+  var totCotis=stats.reduce(function(s,m){return s+m.cotis;},0);
+  var totPas=stats.reduce(function(s,m){return s+m.pas;},0);
+  var totRepas=stats.reduce(function(s,m){return s+m.repas;},0);
+  var totJours=stats.reduce(function(s,m){return s+m.nb;},0);
+  
+  var tab=document.getElementById('statsTable');
+  if(!tab)return;
+  
+  var mLabels=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  var h='<table style="width:100%;border-collapse:collapse;">';
+  h+='<thead><tr style="background:rgba(23,189,181,0.1);color:var(--text);font-size:10px;font-weight:700;text-transform:uppercase;">';
+  h+='<th style="padding:8px;text-align:left;">Mois</th>';
+  h+='<th style="padding:8px;text-align:right;">Jours</th>';
+  h+='<th style="padding:8px;text-align:right;">Brut</th>';
+  h+='<th style="padding:8px;text-align:right;">Net</th>';
+  h+='<th style="padding:8px;text-align:right;">Cotis</th>';
+  h+='<th style="padding:8px;text-align:right;">PAS</th>';
+  h+='</tr></thead><tbody>';
+  
+  for(var i=0;i<12;i++){
+    var st=stats.find(function(s){return s.m===i;});
+    if(!st)continue;
+    var isCur=(i===mn&&y===new Date().getFullYear());
+    var rowBg=isCur?'rgba(23,189,181,0.05)':'transparent';
+    h+='<tr style="background:'+rowBg+';border-bottom:1px solid rgba(255,255,255,0.05);">';
+    h+='<td style="padding:8px;font-weight:600;color:var(--text);">'+mLabels[i]+(st.hasArchive?' 📦':'')+'</td>';
+    h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:var(--accent);">'+st.nb+'</td>';
+    h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--text);">'+fmtR(st.brut)+'</td>';
+    h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:var(--accent);">'+fmtR(st.net)+'</td>';
+    h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--red);">'+fmtR(st.cotis)+'</td>';
+    h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--yellow);">'+fmtR(st.pas)+'</td>';
+    h+='</tr>';
+  }
+  
+  h+='<tr style="background:rgba(23,189,181,0.1);font-weight:700;border-top:2px solid var(--accent);">';
+  h+='<td style="padding:8px;color:var(--text);">TOTAL '+y+'</td>';
+  h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--accent);">'+totJours+'</td>';
+  h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--text);">'+fmtR(totBrut)+'</td>';
+  h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--accent);">'+fmtR(totNet)+'</td>';
+  h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--red);">'+fmtR(totCotis)+'</td>';
+  h+='<td style="padding:8px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--yellow);">'+fmtR(totPas)+'</td>';
+  h+='</tr>';
+  h+='<tr><td colspan="6" style="padding:8px 0px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:var(--text);">+'+fmtR(stats.reduce(function(s,m){return s+m.repas;},0))+' <span style="font-size:10px;color:var(--muted);">(Repas NS)</span></td></tr>';
+  
+  if(archiveStats.length){
+    h+='<tr><td colspan="6" style="padding:8px 0px;">';
+    h+='<div style="font-size:10px;color:var(--muted);padding:8px;display:flex;align-items:center;gap:4px;">📦'+
+    '<span style="color:var(--yellow);">'+archiveStats.length+'</span> Mois incluant des missions archivées</div>';
+    h+='</td></tr>';
+  }
+  
+  h+='</tbody></table>';
+  tab.innerHTML=h;
+}
 
   var stats=merged;
 
@@ -2907,14 +2995,10 @@ function renderInsightCards(stats,y){
 
 var selectedMission='all';
 function setMissionFilter(m){selectedMission=m;renderStatsAnnee();}
-function renderStatsAnnee(){
-  var y=recapYear;
-  var mn=mN();
-
-  // Stats pointeuse active
+function renderStatsAnnee(y){
   var allStats=getAllMonthStats(y);
-
-  // Fusionner avec les archives de l'année
+  
+  // Fusionner avec les archives de l'année — sans double-comptage
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
   var archiveStats=archives.filter(function(a){return a.year===y;});
   var merged=[];
@@ -2922,12 +3006,23 @@ function renderStatsAnnee(){
     var ps=allStats.find(function(s){return s.m===m2;});
     var arcs=archiveStats.filter(function(a){return a.month===m2;});
     if(!ps&&!arcs.length)continue;
-    var entry=ps?{...ps}:{nb:0,brut:0,net:0,cotis:0,pas:0,repas:0,netSocial:0,mission:'',m:m2,y:y};
+    var entry={nb:0,brut:0,net:0,cotis:0,pas:0,repas:0,netSocial:0,mission:'',m:m2,y:y};
+    var archivedMissionNames=arcs.map(function(a){return a.mission||'';});
     arcs.forEach(function(a){
       entry.nb+=a.nb||0;entry.brut+=a.brut||0;entry.net+=a.net||0;
       entry.cotis+=a.cotis||0;entry.pas+=a.pas||0;entry.repas+=a.repas||0;
       entry.netSocial+=a.netSocial||0;
     });
+    if(ps){
+      var psMission=ps.mission||'';
+      var alreadyArchived=archivedMissionNames.indexOf(psMission)!==-1;
+      if(!arcs.length||!alreadyArchived){
+        entry.nb+=ps.nb||0;entry.brut+=ps.brut||0;entry.net+=ps.net||0;
+        entry.cotis+=ps.cotis||0;entry.pas+=ps.pas||0;entry.repas+=ps.repas||0;
+        entry.netSocial+=ps.netSocial||0;
+        entry.mission=psMission;
+      }
+    }
     merged.push(entry);
   }
   var allStatsMerged=merged;
@@ -2961,6 +3056,53 @@ function renderStatsAnnee(){
     if(pillsEl)pillsEl.innerHTML='';
     if(selectEl)selectEl.style.display='none';
   }
+
+  // Filter
+  var stats=selectedMission==='all'?allStatsMerged:allStatsMerged.filter(function(s){
+    return (s.mission||'')===(selectedMission);
+  });
+
+  var totNet=stats.reduce(function(s,m){return s+m.net;},0);
+  var totBrut=stats.reduce(function(s,m){return s+m.brut;},0);
+  var totCotis=stats.reduce(function(s,m){return s+m.cotis;},0);
+  var totPas=stats.reduce(function(s,m){return s+m.pas;},0);
+  var totRepas=stats.reduce(function(s,m){return s+m.repas;},0);
+  var totJours=stats.reduce(function(s,m){return s+m.nb;},0);
+
+  var el=document.getElementById('annualStats');
+  if(el){
+    el.innerHTML=
+      '<div class="stat-card accent"><div class="sc-val">'+fmtR(totNet)+'</div><div class="sc-lbl">Net à payer</div></div>'+
+      '<div class="stat-card"><div class="sc-val">'+fmtR(totBrut)+'</div><div class="sc-lbl">Brut total</div></div>'+
+      '<div class="stat-card red"><div class="sc-val">'+fmtR(totCotis)+'</div><div class="sc-lbl">Cotisations sal.</div></div>'+
+      '<div class="stat-card yellow"><div class="sc-val">'+fmtR(totPas)+'</div><div class="sc-lbl">Impôts PAS</div></div>'+
+      '<div class="stat-card green"><div class="sc-val">'+fmtR(totRepas)+'</div><div class="sc-lbl">Repas NS</div></div>'+
+      '<div class="stat-card"><div class="sc-val">'+totJours+'j</div><div class="sc-lbl">Jours travaillés</div></div>';
+  }
+
+  var decl=document.getElementById('declarationImpots');
+  if(decl&&totBrut>0){
+    var totNetImpo=stats.reduce(function(s,m){return s+(m.netSocial*0.7699);},0);
+    decl.innerHTML=
+      '<div style="display:grid;gap:8px;">'+
+      '<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(74,222,128,0.08);border-radius:6px;">'+
+      '<span style="color:var(--muted);">Salaires nets imposables <span style="font-size:10px;">(case 1AJ)</span></span>'+
+      '<span style="font-weight:700;font-family:monospace;color:var(--green);">'+fmtR(totNetImpo)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(74,222,128,0.08);border-radius:6px;">'+
+      '<span style="color:var(--muted);">PAS déjà prélevé <span style="font-size:10px;">(case 8HV)</span></span>'+
+      '<span style="font-weight:700;font-family:monospace;color:var(--green);">'+fmtR(totPas)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(74,222,128,0.08);border-radius:6px;">'+
+      '<span style="color:var(--muted);">Revenus bruts déclarés</span>'+
+      '<span style="font-weight:700;font-family:monospace;color:var(--green);">'+fmtR(totBrut)+'</span></div>'+
+      '<div style="font-size:10px;color:var(--muted);padding:4px;">⚠ Estimations PayTrack — vérifier avec vos fiches officielles</div>'+
+      '<button class="btn" onclick="exportDeclarationPDF('+y+')" style="font-size:11px;color:var(--green);border-color:rgba(74,222,128,0.3);">📄 Exporter récap fiscal</button>'+
+      '</div>';
+  } else if(decl){
+    decl.innerHTML='<div style="color:var(--muted);font-size:12px;padding:8px;">Pointez des jours pour voir les estimations fiscales</div>';
+  }
+  drawPieChart(totNet,totCotis,totPas,totRepas);
+  drawCumulChart(stats,mn);
+}
 
   // Filter
   var stats=selectedMission==='all'?allStatsMerged:allStatsMerged.filter(function(s){
@@ -3154,25 +3296,29 @@ function renderTimeline(){
 }
 
 function restoreArchive(id){
+  var numId=Number(id);
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
-  var arc=archives.find(function(a){return a.id===id;});
+  var arc=archives.find(function(a){return Number(a.id)===numId;});
   if(!arc||!arc.daySnapshot){showToast('Aucun snapshot disponible pour cette archive');return;}
-  if(!confirm('Restaurer les jours de "'+arc.mission+'" ('+arc.monthLabel+') dans la pointeuse ?\nLes jours actuellement pointés sur ce mois seront remplacés.'))return;
-  // Navigate to the archive's month
-  state.year=arc.year;
-  state.month=arc.month;
-  state.dayData=JSON.parse(JSON.stringify(arc.daySnapshot));
-  state.missionName=arc.mission;
-  saveMonth();
-  buildMonthStrip();render();renderPlannedMissions();
-  switchTab('calc');
-  showToast('✓ Jours restaurés — '+arc.mission+' '+arc.monthLabel);
+  
+  if(!confirm('Restaurer cette archive ? Les jours actuels de la mission "'+arc.mission+'" seront remplacés.'))return;
+  
+  var merged=Object.assign({},state.dayData,arc.daySnapshot);
+  state.dayData=merged;
+  localStorage.setItem('tt_dayData',JSON.stringify(state.dayData));
+  
+  var archives2=archives.filter(function(a){return Number(a.id)!==numId;});
+  localStorage.setItem('tt_archives',JSON.stringify(archives2));
+  
+  renderTimeline();
+  showToast('Archive restaurée');
 }
 
 function deleteArchive(id){
   if(!confirm('Supprimer cette archive ? Cette action est irréversible.'))return;
+  var numId=Number(id);
   var archives=JSON.parse(localStorage.getItem('tt_archives')||'[]');
-  archives=archives.filter(function(a){return a.id!==id;});
+  archives=archives.filter(function(a){return Number(a.id)!==numId;});
   localStorage.setItem('tt_archives',JSON.stringify(archives));
   renderTimeline();
   showToast('Archive supprimée');
@@ -4117,7 +4263,7 @@ window.addEventListener('load',function(){
     navigator.serviceWorker.register(swUrl).catch(function(){});
   }
   loadParams();
-  localStorage.removeItem('tt_mode');
+ var sm=localStorage.getItem('tt_mode')||'simple';
   var sm='simple';
   state.mode=sm;
   document.getElementById('btnDetaille').classList.toggle('active',sm==='detail');
